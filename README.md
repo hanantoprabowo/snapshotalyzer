@@ -1,5 +1,5 @@
 # snapshotalyzer
-Demo project to manage AWS EC2 instance snapshots
+Demo project to manage AWS EC2 instance snapshots. The original code - written by Robin Norwood - can be found [here](https://github.com/robin-acloud/snapshotalyzer-30000)
 
 ## About
 
