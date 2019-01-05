@@ -13,4 +13,7 @@ shotty uses the configuration file created by the AWS cli. e.g.
 
 ## Running
 
-`python shotty/shotty.py`
+`python shotty/shotty.py <command> <--project=PROJECT>`
+
+*command* is list, start, or stop
+*project* is optional
