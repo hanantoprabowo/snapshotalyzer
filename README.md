@@ -8,19 +8,25 @@ This project is a demo, and uses boto3 to manage AWS EC2 instance snapshots.
 ## Prerequisite
 
 * Clone this repository
-`git clone https://github.com/hanantoprabowo/snapshotalyzer.git`
+  ```
+  $ git clone https://github.com/hanantoprabowo/snapshotalyzer.git
+  ```
 * Create an AWS account
 * Create an IAM user, which has
   * a programmatical access (Access Key ID and Secret Access Key)
   * a *AmazonEC2FullAccess* policy
 * Download and install [Anaconda](https://www.anaconda.com/download/)
 * Start Anaconda Prompt
-  * Install the required packages using [conda](https://www.anaconda.com/download/)
-  `conda install -c conda-forge awscli`
-  `conda install -c anaconda boto3`
-  `conda install -c anaconda click`
+  * Install the required packages
+    ```
+    $ conda install -c conda-forge awscli
+    $ conda install -c anaconda boto3
+    $ conda install -c anaconda click
+    ```
   * Create an AWS CLI configuration file for the profile *shotty*
-  `aws configure --profile shotty`
+    ```
+    $ aws configure --profile shotty
+    ```
 * Start one or two EC2 instance(s) (using AWS Console, CLI or SDK)
 
 ## Running
