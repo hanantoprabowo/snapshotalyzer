@@ -3,27 +3,37 @@ import botocore
 import click
 
 
-session = boto3.Session(profile_name='shotty')
-ec2 = session.resource('ec2')
+def get_ec2_resource(profile, region):
+	session = boto3.Session(profile_name=profile, region_name=region)
+	return session.resource('ec2')
 
-def filter_instances(project):
-	instances = []
+def filter_instances(ec2, project=None, instance=None):
+	filters = []
 	
 	if project:
-		filters = [{'Name':'tag:Project', 'Values':[project]}]
-		instances = ec2.instances.filter(Filters=filters)
-	else:
-		instances = ec2.instances.all()
+		filters.append({'Name':'tag:Project', 'Values':[project]})
+	
+	if instance:
+		filters.append({'Name':'instance-id', 'Values':[instance]})
+	
+	return ec2.instances.filter(Filters=filters)
 		
-	return instances
-
 def has_pending_snapshot(volume):
 	snapshots = list(volume.snapshots.all())
 	return snapshots and snapshots[0].state == 'pending'
 	
 @click.group()
-def cli():
+@click.option('--profile', default='shotty', 
+	help="Specify a profile (default: 'shotty')")
+@click.option('--region', default=None,
+	help="Specify a region")
+@click.pass_context
+def cli(ctx, profile, region):
 	"""Shotty manages snapshots"""
+	
+	ctx.ensure_object(dict)
+	ctx.obj['PROFILE'] = profile
+	ctx.obj['REGION'] = region
 
 @cli.group()
 def snapshots():
@@ -32,12 +42,16 @@ def snapshots():
 @snapshots.command('list')
 @click.option('--project', default=None, 
 	help="Only snapshots for project (tag Project:<name>)")
+@click.option('--instance', default=None, 
+	help="Only snapshots for the specified instance")
 @click.option('--all', 'list_all', default=False, is_flag=True,
 	help="List all snapshots for each volume, not just the most recent")
-def list_snapshots(project, list_all):
+@click.pass_context
+def list_snapshots(ctx, project, instance, list_all):
 	"List EC2 snapshots"
 	
-	instances = filter_instances(project)
+	ec2 = get_ec2_resource(ctx.obj['PROFILE'], ctx.obj['REGION'])
+	instances = filter_instances(ec2, project, instance)
 	
 	for i in instances:
 		for v in i.volumes.all():
@@ -62,10 +76,14 @@ def volumes():
 @volumes.command('list')
 @click.option('--project', default=None, 
 	help="Only volumes for project (tag Project:<name>)")
-def list_volumes(project):
+@click.option('--instance', default=None, 
+	help="Only volumes for the specified instance")
+@click.pass_context
+def list_volumes(ctx, project, instance):
 	"List EC2 volumes"
 	
-	instances = filter_instances(project)
+	ec2 = get_ec2_resource(ctx.obj['PROFILE'], ctx.obj['REGION'])
+	instances = filter_instances(ec2, project, instance)
 	
 	for i in instances:
 		for v in i.volumes.all():
@@ -86,13 +104,24 @@ def instances():
 @instances.command('snapshot')
 @click.option('--project', default=None, 
 	help="Only instances for project (tag Project:<name>)")
-def create_snapshots(project):
+@click.option('--instance', default=None, 
+	help="Only for the specified instance")
+@click.option('--force', 'force', default=False, is_flag=True,
+	help="Force to snapshot instances")
+@click.pass_context
+def create_snapshots(ctx, project, instance, force):
 	"Create snapshots for EC2 instances"
 	
-	instances = filter_instances(project)
+	if not (project or instance or force):
+		print("Neither --project nor --instance nor --force is defined. Operation aborted.")
+		return
+	
+	ec2 = get_ec2_resource(ctx.obj['PROFILE'], ctx.obj['REGION'])
+	instances = filter_instances(ec2, project, instance)
 	
 	for i in instances:
 		print("Stopping {0}...".format(i.id))
+		old_state = i.state['Name']
 		
 		i.stop()
 		i.wait_until_stopped()
@@ -103,13 +132,19 @@ def create_snapshots(project):
 				continue
 
 			print("  Creating snapshot of {0}".format(v.id))
-			v.create_snapshot(Description="Created by Snapshotalyzer")
+			
+			try:
+				v.create_snapshot(Description="Created by Snapshotalyzer")
+			except botocore.exceptions.ClientError as e:
+				print("  Could not snapshot {0}. ".format(v.id) + str(e))
+				continue
 		
-		print("Starting {0}...".format(i.id))
+		if old_state == 'running':
+			print("Starting {0}...".format(i.id))
 		
-		i.start()
-		i.wait_until_running()
-	
+			i.start()
+			i.wait_until_running()
+		
 	print("Job's done")
 	
 	return
@@ -118,10 +153,14 @@ def create_snapshots(project):
 @instances.command('list')
 @click.option('--project', default=None, 
 	help="Only instances for project (tag Project:<name>)")
-def list_instances(project):
+@click.option('--instance', default=None, 
+	help="Only for the specified instance")
+@click.pass_context
+def list_instances(ctx, project, instance):
 	"List EC2 instances"
 	
-	instances = filter_instances(project)
+	ec2 = get_ec2_resource(ctx.obj['PROFILE'], ctx.obj['REGION'])
+	instances = filter_instances(ec2, project, instance)
 	
 	for i in instances:
 		tags = { t['Key']: t['Value'] for t in i.tags or [] }
@@ -139,10 +178,20 @@ def list_instances(project):
 @instances.command('stop')
 @click.option('--project', default=None, 
 	help="Only instances for project (tag Project:<name>)")
-def stop_instances(project):
+@click.option('--instance', default=None, 
+	help="Only for the specified instance")
+@click.option('--force', 'force', default=False, is_flag=True,
+	help="Force to stop instances")
+@click.pass_context
+def stop_instances(ctx, project, instance, force):
 	"Stop EC2 instances"
 	
-	instances = filter_instances(project)
+	if not (project or instance or force):
+		print("Neither --project nor --instance nor --force is defined. Operation aborted.")
+		return
+	
+	ec2 = get_ec2_resource(ctx.obj['PROFILE'], ctx.obj['REGION'])
+	instances = filter_instances(ec2, project, instance)
 	
 	for i in instances:
 		print("Stopping {0}...".format(i.id))
@@ -157,10 +206,20 @@ def stop_instances(project):
 @instances.command('start')
 @click.option('--project', default=None, 
 	help="Only instances for project (tag Project:<name>)")
-def start_instances(project):
+@click.option('--instance', default=None, 
+	help="Only for the specified instance")
+@click.option('--force', 'force', default=False, is_flag=True,
+	help="Force to start instances")
+@click.pass_context
+def start_instances(ctx, project, instance, force):
 	"Start EC2 instances"
 	
-	instances = filter_instances(project)
+	if not (project or instance or force):
+		print("Neither --project nor --instance nor --force is defined. Operation aborted.")
+		return
+	
+	ec2 = get_ec2_resource(ctx.obj['PROFILE'], ctx.obj['REGION'])
+	instances = filter_instances(ec2, project, instance)
 	
 	for i in instances:
 		print("Starting {0}...".format(i.id))
@@ -172,5 +231,33 @@ def start_instances(project):
 	
 	return
 
+@instances.command('reboot')
+@click.option('--project', default=None, 
+	help="Only instances for project (tag Project:<name>)")
+@click.option('--instance', default=None, 
+	help="Only for the specified instance")
+@click.option('--force', 'force', default=False, is_flag=True,
+	help="Force to reboot instances")
+@click.pass_context
+def reboot_instances(ctx, project, instance, force):
+	"Reboot EC2 instances"
+	
+	if not (project or instance or force):
+		print("Neither --project nor --instance nor --force is defined. Operation aborted.")
+		return
+	
+	ec2 = get_ec2_resource(ctx.obj['PROFILE'], ctx.obj['REGION'])
+	instances = filter_instances(ec2, project, instance)
+	
+	for i in instances:
+		print("Rebooting {0}...".format(i.id))
+		try:
+			i.reboot()
+		except botocore.exceptions.ClientError as e:
+			print(" Could not reboot {0}. ".format(i.id) + str(e))
+			continue
+	
+	return
+
 if __name__ == '__main__':
-	cli()
+	cli(obj={})
